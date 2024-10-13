@@ -80,12 +80,9 @@ Further more the following methods are required to actually implement the routin
 
 * `handleRouteIndication(destination, relayer, hopCount, numNeighbors, counter)`\
 This method is called when a `RouteIndication` message is received.
-<br>
 * `handleRouteLost(destination)`\
 This method is called when a `RouteLost` message is received.
-<br>
 * `connect(neighbor)`\
 This method is called when a neighbor is connected.
-<br>
 * `disconnect(neighbor)`\
 This method is called when a neighbor is disconnected.
