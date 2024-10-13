@@ -1,7 +1,3 @@
-# Routing algorithm
-_This repository demonstrates a simple routing algorithm for a mobile ad-hoc network (MANET). Using a simulation    environment, the demonstration shows how nodes can communicate with each other even when they are not connected to the same fixed network._
-
-
 # Mobile Ad-Hoc Network (MANET) Simulation with Routing Algorithm
 
 ## Overview
