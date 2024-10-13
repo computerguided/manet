@@ -3,6 +3,9 @@ _This repository demonstrates a simple routing algorithm for a mobile ad-hoc net
 
 **The simulation is implemented in JavaScript and HTML5 and runs in any modern web browser. Click [here](https://htmlpreview.github.io/?https://raw.githubusercontent.com/computerguided/manet/refs/heads/main/simmanet.html) to run the simulation in your browser.**
 
+**Click [here](https://htmlpreview.github.io/?https://raw.githubusercontent.com/computerguided/rocket-sim/refs/heads/main/rocket-sim.html) to run the rocket simulation in your browser.**
+
+
 ## Networking
 
 Before discussing the routing algorithm, it is important to understand the networking aspect of the simulation.
