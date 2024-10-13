@@ -1,7 +1,7 @@
 # Routing algorithm
 _This repository demonstrates a simple routing algorithm for a mobile ad-hoc network (MANET). Using a simulation    environment, the demonstration shows how nodes can communicate with each other even when they are not connected to the same fixed network._
 
-**The simulation is implemented in JavaScript and HTML5 and runs in any modern web browser. Click [here](https://htmlpreview.github.io/?https://raw.githubusercontent.com/computerguided/manet/refs/heads/main/mannet.html) to run the simulation in your browser.**
+**The simulation is implemented in JavaScript and HTML5 and runs in any modern web browser. Click [here](https://htmlpreview.github.io/?https://raw.githubusercontent.com/computerguided/manet/refs/heads/main/simmannet.html) to run the simulation in your browser.**
 
 ## Networking
 
