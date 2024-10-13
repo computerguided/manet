@@ -31,13 +31,19 @@
     font-size: 14px;
     margin-right: 5px;
   }
-  header input
+  header input[type="number"],
+  header input[type="range"]
   {
     width: 150px;
     padding: 5px 8px;
     border: none;
     border-radius: 4px;
     font-size: 14px;
+    background-color: #333;
+    color: #fff;
+  }
+  header input[type="range"] {
+    width: 100px;
   }
   header button
   {
@@ -66,6 +72,12 @@
     width: 100%;
     height: 100%;
   }
+  /* Styling for speed display */
+  #nodeSpeedDisplay
+  {
+    width: 30px;
+    text-align: center;
+  }
 </style>
 </head>
 <body>
@@ -78,6 +90,19 @@
   <label for="transmissionRangeInput">Transmission Range (px):</label>
   <input type="number" id="transmissionRangeInput" min="10" max="1000" value="150">
   
+  <!-- Control for Random Walk -->
+  <label for="randomWalkCheckbox">Enable Random Walk:</label>
+  <input type="checkbox" id="randomWalkCheckbox">
+  
+  <!-- New Control for Node Speed -->
+  <label for="nodeSpeedInput">Node Speed:</label>
+  <input type="range" id="nodeSpeedInput" min="0.5" max="5" step="0.1" value="1.5">
+  <span id="nodeSpeedDisplay">1.5</span>
+  
+  <!-- New Control for Showing Connections -->
+  <label for="showConnectionsCheckbox">Show Connections:</label>
+  <input type="checkbox" id="showConnectionsCheckbox" checked>
+  
   <button id="startButton">Start Simulation</button>
 </header>
 
@@ -89,7 +114,8 @@
 <script>
   // Initial default simulation parameters
   let transmissionRange = 150; // Transmission range in pixels
-  let nodeCount = 50;         // Number of nodes in the network
+  let nodeCount = 50;           // Number of nodes in the network
+  let nodeSpeed = 1.5;          // Speed of nodes in pixels per frame
   const nodeRadius = 10;        // Visual radius of each node
 
   // References to DOM elements
@@ -100,6 +126,52 @@
   nodeCountInput.value = nodeCount;
   const transmissionRangeInput = document.getElementById('transmissionRangeInput');
   transmissionRangeInput.value = transmissionRange;
+  
+  // References for Random Walk
+  const randomWalkCheckbox = document.getElementById('randomWalkCheckbox');
+  let randomWalkEnabled = false; // Flag to track if random walk is enabled
+
+  // References for Node Speed Control
+  const nodeSpeedInput = document.getElementById('nodeSpeedInput');
+  const nodeSpeedDisplay = document.getElementById('nodeSpeedDisplay');
+  nodeSpeedDisplay.textContent = nodeSpeed;
+
+  // References for Show Connections Control
+  const showConnectionsCheckbox = document.getElementById('showConnectionsCheckbox');
+  let showConnections = showConnectionsCheckbox.checked; // Flag to track if connections are shown
+
+  // Event Listener for Random Walk Checkbox
+  randomWalkCheckbox.addEventListener('change', () => {
+    randomWalkEnabled = randomWalkCheckbox.checked;
+    if (randomWalkEnabled) {
+      nodes.forEach(node => {
+        if (node.vx === 0 && node.vy === 0) {
+          node.initializeVelocity();
+        }
+      });
+    } else {
+      nodes.forEach(node => {
+        node.vx = 0;
+        node.vy = 0;
+      });
+    }
+  });
+
+  // Event Listener for Show Connections Checkbox
+  showConnectionsCheckbox.addEventListener('change', () => {
+    showConnections = showConnectionsCheckbox.checked;
+  });
+
+  // Event Listener for Node Speed Slider
+  nodeSpeedInput.addEventListener('input', () => {
+    nodeSpeed = parseFloat(nodeSpeedInput.value);
+    nodeSpeedDisplay.textContent = nodeSpeed.toFixed(1);
+    if (randomWalkEnabled) {
+      nodes.forEach(node => {
+        node.updateSpeed(nodeSpeed);
+      });
+    }
+  });
 
   // Variables to manage simulation state
   let nodes = [];
@@ -131,9 +203,13 @@
       this.messageQueue = [];                // Queue for incoming messages
       this.counter = 0;                      // Counter for RouteIndication messages (used by destination node)
       this.periodicTimer = null;             // Timer for periodic RouteIndication messages
+      
+      // Properties for Random Walk
+      this.vx = 0; // Velocity in x-direction
+      this.vy = 0; // Velocity in y-direction
     }
 
-    // Method to start periodic RouteIndication messages (every 5 seconds)
+    // Method to start periodic RouteIndication messages (every 1 second)
     startPeriodicRouteIndication()
     {
       this.periodicTimer = setInterval(() => this.periodicRouteIndication(), 5000);
@@ -149,10 +225,16 @@
       }
     }
 
-    // Update method to process incoming messages
+    // Update method to process incoming messages and handle movement
     update()
     {
       this.processMessages();
+      if (randomWalkEnabled) {
+        if (this.vx === 0 && this.vy === 0) {
+          this.initializeVelocity();
+        }
+        this.updatePosition();
+      }
     }
 
     // Draw the node on the canvas
@@ -336,6 +418,54 @@
         });
       }
     }
+
+    // Initialize velocity for random walk
+    initializeVelocity() {
+      const angle = Math.random() * 2 * Math.PI;
+      this.vx = nodeSpeed * Math.cos(angle);
+      this.vy = nodeSpeed * Math.sin(angle);
+    }
+
+    // Update speed while maintaining direction
+    updateSpeed(newSpeed) {
+      const currentAngle = Math.atan2(this.vy, this.vx);
+      this.vx = newSpeed * Math.cos(currentAngle);
+      this.vy = newSpeed * Math.sin(currentAngle);
+    }
+
+    // Update position based on velocity and handle boundary collisions
+    updatePosition() {
+      this.x += this.vx;
+      this.y += this.vy;
+
+      // Bounce off walls
+      if (this.x <= nodeRadius) {
+        this.x = nodeRadius;
+        this.vx *= -1;
+      }
+      if (this.x >= canvas.width - nodeRadius) {
+        this.x = canvas.width - nodeRadius;
+        this.vx *= -1;
+      }
+      if (this.y <= nodeRadius) {
+        this.y = nodeRadius;
+        this.vy *= -1;
+      }
+      if (this.y >= canvas.height - nodeRadius) {
+        this.y = canvas.height - nodeRadius;
+        this.vy *= -1;
+      }
+
+      // Occasionally change direction
+      if (Math.random() < 0.01) { // 1% chance to change direction per frame
+        const angleChange = (Math.random() - 0.5) * Math.PI / 4; // small change
+        const currentAngle = Math.atan2(this.vy, this.vx);
+        const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+        const newAngle = currentAngle + angleChange;
+        this.vx = speed * Math.cos(newAngle);
+        this.vy = speed * Math.sin(newAngle);
+      }
+    }
   }
 
   // Function to initialize the simulation
@@ -356,6 +486,7 @@
     // Read input values
     const inputNodeCount = parseInt(nodeCountInput.value, 10);
     const inputTransmissionRange = parseInt(transmissionRangeInput.value, 10);
+    const inputNodeSpeed = parseFloat(nodeSpeedInput.value);
 
     // Validate inputs
     if (isNaN(inputNodeCount) || inputNodeCount < 1) {
@@ -366,10 +497,19 @@
       alert('Please enter a valid transmission range (minimum 10 pixels).');
       return;
     }
+    if (isNaN(inputNodeSpeed) || inputNodeSpeed < 0.5 || inputNodeSpeed > 5) {
+      alert('Please enter a valid node speed (0.5 - 5 pixels/frame).');
+      return;
+    }
 
     // Update simulation parameters
     nodeCount = Math.min(inputNodeCount, 500); // Limit to 500 for performance
     transmissionRange = Math.min(inputTransmissionRange, 1000); // Limit to 1000 pixels
+    nodeSpeed = Math.min(Math.max(inputNodeSpeed, 0.5), 5); // Clamp speed between 0.5 and 5
+
+    // Update speed display
+    nodeSpeedInput.value = nodeSpeed;
+    nodeSpeedDisplay.textContent = nodeSpeed.toFixed(1);
 
     // Initialize nodes
     for (let i = 0; i < nodeCount; i++) {
@@ -385,6 +525,13 @@
       node.messageQueue = [];
       node.counter = 0;
       node.stopPeriodicRouteIndication();
+      // Reset velocities based on random walk status
+      if (!randomWalkEnabled) {
+        node.vx = 0;
+        node.vy = 0;
+      } else {
+        node.initializeVelocity();
+      }
     });
 
     // Designate one node as the destination
@@ -476,12 +623,7 @@
             nodes[j].connect(nodes[i].id);
           }
 
-          // Draw the connection line
-          ctx.beginPath();
-          ctx.moveTo(nodes[i].x, nodes[i].y);
-          ctx.lineTo(nodes[j].x, nodes[j].y);
-
-          // Check if the connection is part of a route to the destination
+          // Determine if this connection is part of a route
           const route_i = nodes[i].getRoute(destinationNode.id);
           const route_j = nodes[j].getRoute(destinationNode.id);
 
@@ -493,18 +635,35 @@
             isRouteConnection = true;
           }
 
-          if (isRouteConnection) {
-            // Part of the route
-            ctx.strokeStyle = '#0000ff'; // Blue for route connections
-            ctx.lineWidth = 2;
-          } else {
-            // Regular connection
-            ctx.strokeStyle = '#ffffff'; // White for regular connections
-            ctx.lineWidth = 0.5;
-          }
+          // Draw the connection line only if Show Connections is enabled
+          if (showConnections) {
+            ctx.beginPath();
+            ctx.moveTo(nodes[i].x, nodes[i].y);
+            ctx.lineTo(nodes[j].x, nodes[j].y);
 
-          ctx.stroke();
-          ctx.closePath();
+            // Set styles based on whether it's a route connection
+            if (isRouteConnection) {
+              ctx.strokeStyle = '#0000ff'; // Blue for route connections
+              ctx.lineWidth = 2;
+            } else {
+              ctx.strokeStyle = '#ffffff'; // White for regular connections
+              ctx.lineWidth = 0.5;
+            }
+
+            ctx.stroke();
+            ctx.closePath();
+          } else {
+            // If connections are hidden, only draw routes
+            if (isRouteConnection) {
+              ctx.beginPath();
+              ctx.moveTo(nodes[i].x, nodes[i].y);
+              ctx.lineTo(nodes[j].x, nodes[j].y);
+              ctx.strokeStyle = '#0000ff'; // Blue for route connections
+              ctx.lineWidth = 2;
+              ctx.stroke();
+              ctx.closePath();
+            }
+          }
         } else {
           // If they are connected but now out of range, disconnect them
           if (nodes[i].neighbors.has(nodes[j].id)) {
@@ -515,13 +674,13 @@
           }
         }
       }
-
-      // Update and draw nodes
-      nodes.forEach(node => {
-        node.update();
-        node.draw();
-      });
     }
+
+    // Update and draw nodes
+    nodes.forEach(node => {
+      node.update();
+      node.draw();
+    });
 
     animationId = requestAnimationFrame(animate);
   }
