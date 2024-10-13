@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Mobile Ad-Hoc Network Simulation with Routing Algorithm</title>
+<style>
+  body
+  {
+    margin: 0;
+    overflow: hidden;
+    background-color: #222;
+    font-family: Arial, sans-serif;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  /* Styling for the header (control panel) */
+  header 
+  {
+    background: rgba(34, 34, 34, 0.95);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+    z-index: 10;
+  }
+  header label
+  {
+    font-size: 14px;
+    margin-right: 5px;
+  }
+  header input
+  {
+    width: 150px;
+    padding: 5px 8px;
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+  }
+  header button
+  {
+    padding: 6px 12px;
+    background-color: #00aaff;
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+  }
+  header button:hover
+  {
+    background-color: #0088cc;
+  }
+  /* Styling for the canvas container */
+  #canvasContainer
+  {
+    flex: 1;
+    position: relative;
+  }
+  canvas
+  {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+</style>
+</head>
+<body>
+
+<!-- Header (Control Panel) -->
+<header>
+  <label for="nodeCountInput">Number of Nodes:</label>
+  <input type="number" id="nodeCountInput" min="1" max="500" value="100">
+  
+  <label for="transmissionRangeInput">Transmission Range (px):</label>
+  <input type="number" id="transmissionRangeInput" min="10" max="1000" value="150">
+  
+  <button id="startButton">Start Simulation</button>
+</header>
+
+<!-- Canvas Container -->
+<div id="canvasContainer">
+  <canvas id="networkCanvas"></canvas>
+</div>
+
+<script>
+  // Initial default simulation parameters
+  let transmissionRange = 150; // Transmission range in pixels
+  let nodeCount = 50;         // Number of nodes in the network
+  const nodeRadius = 10;        // Visual radius of each node
+
+  // References to DOM elements
+  const canvas = document.getElementById('networkCanvas');
+  const ctx = canvas.getContext('2d');
+  const startButton = document.getElementById('startButton');
+  const nodeCountInput = document.getElementById('nodeCountInput');
+  nodeCountInput.value = nodeCount;
+  const transmissionRangeInput = document.getElementById('transmissionRangeInput');
+  transmissionRangeInput.value = transmissionRange;
+
+  // Variables to manage simulation state
+  let nodes = [];
+  let destinationNode = null;
+  let animationId = null;
+
+  // Function to resize the canvas to fit the window
+  function resizeCanvas()
+  {
+    const canvasContainer = document.getElementById('canvasContainer');
+    canvas.width = canvasContainer.clientWidth;
+    canvas.height = canvasContainer.clientHeight;
+  }
+  resizeCanvas();
+
+  // Node class definition
+  class Node 
+  {
+    constructor(id) 
+    {
+      this.id = id;
+      this.x = Math.random() * (canvas.width - 2 * nodeRadius) + nodeRadius;
+      this.y = Math.random() * (canvas.height - 2 * nodeRadius) + nodeRadius;
+      this.neighbors = new Set();           // All potential neighbors based on distance
+      this.connectedNeighbors = new Set();  // Currently connected neighbors
+      this.routes = [];                      // Routing table
+      this.isDestination = false;           // Flag to identify the destination node
+
+      this.messageQueue = [];                // Queue for incoming messages
+      this.counter = 0;                      // Counter for RouteIndication messages (used by destination node)
+      this.periodicTimer = null;             // Timer for periodic RouteIndication messages
+    }
+
+    // Method to start periodic RouteIndication messages (every 5 seconds)
+    startPeriodicRouteIndication()
+    {
+      this.periodicTimer = setInterval(() => this.periodicRouteIndication(), 5000);
+    }
+
+    // Method to stop periodic RouteIndication messages
+    stopPeriodicRouteIndication()
+    {
+      if (this.periodicTimer)
+      {
+        clearInterval(this.periodicTimer);
+        this.periodicTimer = null;
+      }
+    }
+
+    // Update method to process incoming messages
+    update()
+    {
+      this.processMessages();
+    }
+
+    // Draw the node on the canvas
+    draw()
+    {
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.isDestination ? nodeRadius + 3 : nodeRadius, 0, Math.PI * 2);
+      ctx.fillStyle = this.isDestination ? '#ff0000' : '#00ff00'; // Red for destination, green otherwise
+      ctx.fill();
+      ctx.closePath();
+    }
+
+    // Add or update a route in the routing table
+    addRoute(destination, relayer, hopCount, counter)
+    {
+      // Remove existing route to the destination
+      this.routes = this.routes.filter(route => route.destination !== destination);
+      // Add the new or updated route
+      this.routes.push({ destination, relayer, hopCount, counter });
+    }
+
+    // Remove a route from the routing table
+    removeRoute(destination)
+    {
+      this.routes = this.routes.filter(route => route.destination !== destination);
+    }
+
+    // Retrieve a route from the routing table
+    getRoute(destination)
+    {
+      return this.routes.find(route => route.destination === destination);
+    }
+
+    // Handle incoming RouteIndication messages
+    handleRouteIndication(destination, hopCount, relayer, counter)
+    {
+      const existingRoute = this.getRoute(destination);
+      const lastCounter = existingRoute ? existingRoute.counter : -1;
+
+      // Determine if the incoming counter is larger than the last one received
+      const shouldForward = counter > lastCounter;
+
+      // Process the RouteIndication
+      if (!existingRoute || hopCount < existingRoute.hopCount)
+      {
+        // Add new route or update with lower hopCount
+        this.addRoute(destination, relayer, hopCount, counter);
+      } 
+      else if (counter > lastCounter)
+      {
+        // Update counter without changing the route
+        if (existingRoute)
+        {
+          existingRoute.counter = counter;
+        }
+      }
+
+      // Rule 5: Forward the RouteIndication if the counter is larger than the last one received
+      if (shouldForward)
+      {
+        this.sendRouteIndication(destination, hopCount + 1, counter);
+      }
+    }
+
+    // Handle incoming RouteLost messages
+    handleRouteLost(destination, source)
+    {
+      const route = this.getRoute(destination);
+      if (route && route.relayer === source)
+      {
+        // Rule 7: Remove the route and propagate RouteLost
+        this.removeRoute(destination);
+        // Forward RouteLost to all other connected neighbors
+        const otherNeighbors = Array.from(this.connectedNeighbors).filter(nid => nid !== source);
+        otherNeighbors.forEach(neighborId => 
+        {
+          const neighbor = nodes[neighborId];
+          neighbor.messageQueue.push(
+          {
+            type: 'RouteLost',
+            source: this.id,
+            destination,
+          });
+        });
+      }
+    }
+
+    // Send RouteIndication messages to connected neighbors
+    sendRouteIndication(destination, hopCount, counter) 
+    {
+      this.connectedNeighbors.forEach(neighborId => 
+      {
+        const neighbor = nodes[neighborId];
+        neighbor.messageQueue.push(
+        {
+          type: 'RouteIndication',
+          source: this.id,
+          destination,
+          relayer: this.id, // The relayer is this node
+          hopCount,
+          counter,
+        });
+      });
+    }
+
+    // Periodic RouteIndication messages (only for the destination node)
+    periodicRouteIndication()
+    {
+      // Increment the counter
+      this.counter += 1;
+      // Send RouteIndication to all connected neighbors
+      this.connectedNeighbors.forEach(neighborId =>
+      {
+        const neighbor = nodes[neighborId];
+        neighbor.messageQueue.push(
+        {
+          type: 'RouteIndication',
+          source: this.id,
+          destination: this.id, // Destination is itself
+          relayer: this.id, // The relayer is this node
+          hopCount: 0,
+          counter: this.counter,
+        });
+      });
+    }
+
+    // Send RouteLost messages to connected neighbors
+    sendRouteLost(destination)
+    {
+      this.connectedNeighbors.forEach(neighborId =>
+      {
+        const neighbor = nodes[neighborId];
+        neighbor.messageQueue.push({
+          type: 'RouteLost',
+          source: this.id,
+          destination,
+        });
+      });
+    }
+
+    // Process messages in the queue
+    processMessages() {
+      while (this.messageQueue.length > 0) {
+        const message = this.messageQueue.shift();
+        if (message.type === 'RouteIndication') {
+          this.handleRouteIndication(
+            message.destination,
+            message.hopCount,
+            message.source, // relayer is the source of the message
+            message.counter
+          );
+        } else if (message.type === 'RouteLost') {
+          this.handleRouteLost(message.destination, message.source);
+        }
+      }
+    }
+
+    // Connect to a neighbor
+    connect(neighborId) {
+      if (!this.connectedNeighbors.has(neighborId)) {
+        this.connectedNeighbors.add(neighborId);
+      }
+    }
+
+    // Disconnect from a neighbor
+    disconnect(neighborId) {
+      if (this.connectedNeighbors.has(neighborId)) {
+        this.connectedNeighbors.delete(neighborId);
+        // Collect destinations for which the relayer is lost
+        const affectedDestinations = [];
+        this.routes = this.routes.filter(route => {
+          if (route.relayer === neighborId) {
+            affectedDestinations.push(route.destination);
+            return false; // Remove this route
+          }
+          return true;
+        });
+        // Send RouteLost for each affected destination
+        affectedDestinations.forEach(destination => {
+          this.sendRouteLost(destination);
+        });
+      }
+    }
+  }
+
+  // Function to initialize the simulation
+  function initializeSimulation() {
+    // Clear any existing animation frame
+    if (animationId) {
+      cancelAnimationFrame(animationId);
+    }
+
+    // Stop periodic RouteIndication messages for existing nodes
+    nodes.forEach(node => {
+      node.stopPeriodicRouteIndication();
+    });
+
+    // Clear existing nodes and reset variables
+    nodes = [];
+
+    // Read input values
+    const inputNodeCount = parseInt(nodeCountInput.value, 10);
+    const inputTransmissionRange = parseInt(transmissionRangeInput.value, 10);
+
+    // Validate inputs
+    if (isNaN(inputNodeCount) || inputNodeCount < 1) {
+      alert('Please enter a valid number of nodes (minimum 1).');
+      return;
+    }
+    if (isNaN(inputTransmissionRange) || inputTransmissionRange < 10) {
+      alert('Please enter a valid transmission range (minimum 10 pixels).');
+      return;
+    }
+
+    // Update simulation parameters
+    nodeCount = Math.min(inputNodeCount, 500); // Limit to 500 for performance
+    transmissionRange = Math.min(inputTransmissionRange, 1000); // Limit to 1000 pixels
+
+    // Initialize nodes
+    for (let i = 0; i < nodeCount; i++) {
+      nodes.push(new Node(i));
+    }
+
+    // Reset connections between nodes
+    // This ensures that any previous connections are cleared
+    nodes.forEach(node => {
+      node.neighbors.clear();
+      node.connectedNeighbors.clear();
+      node.routes = [];
+      node.messageQueue = [];
+      node.counter = 0;
+      node.stopPeriodicRouteIndication();
+    });
+
+    // Designate one node as the destination
+    destinationNode = nodes[0];
+    destinationNode.isDestination = true;
+    destinationNode.counter = 0; // Initialize counter for the destination node
+    destinationNode.addRoute(destinationNode.id, destinationNode.id, 0, destinationNode.counter);
+    // Start periodic RouteIndication messages for the destination node
+    destinationNode.startPeriodicRouteIndication();
+
+    // Restart the animation loop
+    animate();
+  }
+
+  // Variables for dragging nodes
+  let isDragging = false;
+  let dragNode = null;
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
+
+  // Mouse event handlers
+  canvas.addEventListener('mousedown', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    // Check if the mouse is over any node
+    for (let node of nodes) {
+      const dx = node.x - mouseX;
+      const dy = node.y - mouseY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance <= nodeRadius + 5) {
+        isDragging = true;
+        dragNode = node;
+        dragOffsetX = node.x - mouseX;
+        dragOffsetY = node.y - mouseY;
+        break; // Stop checking after finding the first node under the cursor
+      }
+    }
+  });
+
+  canvas.addEventListener('mousemove', (e) => {
+    if (isDragging && dragNode) {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      dragNode.x = mouseX + dragOffsetX;
+      dragNode.y = mouseY + dragOffsetY;
+
+      // Keep the node within the canvas bounds
+      dragNode.x = Math.max(nodeRadius, Math.min(canvas.width - nodeRadius, dragNode.x));
+      dragNode.y = Math.max(nodeRadius, Math.min(canvas.height - nodeRadius, dragNode.y));
+    }
+  });
+
+  canvas.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      dragNode = null;
+    }
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    if (isDragging) {
+      isDragging = false;
+      dragNode = null;
+    }
+  });
+
+  // Main simulation loop
+  function animate() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Check for connections and draw links
+    for (let i = 0; i < nodeCount; i++) {
+      for (let j = i + 1; j < nodeCount; j++) {
+        const dx = nodes[i].x - nodes[j].x;
+        const dy = nodes[i].y - nodes[j].y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance <= transmissionRange) {
+          // If they are not connected, connect them
+          if (!nodes[i].neighbors.has(nodes[j].id)) {
+            nodes[i].neighbors.add(nodes[j].id);
+            nodes[j].neighbors.add(nodes[i].id);
+            nodes[i].connect(nodes[j].id);
+            nodes[j].connect(nodes[i].id);
+          }
+
+          // Draw the connection line
+          ctx.beginPath();
+          ctx.moveTo(nodes[i].x, nodes[i].y);
+          ctx.lineTo(nodes[j].x, nodes[j].y);
+
+          // Check if the connection is part of a route to the destination
+          const route_i = nodes[i].getRoute(destinationNode.id);
+          const route_j = nodes[j].getRoute(destinationNode.id);
+
+          let isRouteConnection = false;
+          if (route_i && route_i.relayer === nodes[j].id) {
+            isRouteConnection = true;
+          }
+          if (route_j && route_j.relayer === nodes[i].id) {
+            isRouteConnection = true;
+          }
+
+          if (isRouteConnection) {
+            // Part of the route
+            ctx.strokeStyle = '#0000ff'; // Blue for route connections
+            ctx.lineWidth = 2;
+          } else {
+            // Regular connection
+            ctx.strokeStyle = '#ffffff'; // White for regular connections
+            ctx.lineWidth = 0.5;
+          }
+
+          ctx.stroke();
+          ctx.closePath();
+        } else {
+          // If they are connected but now out of range, disconnect them
+          if (nodes[i].neighbors.has(nodes[j].id)) {
+            nodes[i].neighbors.delete(nodes[j].id);
+            nodes[j].neighbors.delete(nodes[i].id);
+            nodes[i].disconnect(nodes[j].id);
+            nodes[j].disconnect(nodes[i].id);
+          }
+        }
+      }
+
+      // Update and draw nodes
+      nodes.forEach(node => {
+        node.update();
+        node.draw();
+      });
+    }
+
+    animationId = requestAnimationFrame(animate);
+  }
+
+  // Start the simulation initially with default parameters
+  initializeSimulation();
+
+  // Event listener for the Start Simulation button
+  startButton.addEventListener('click', () => {
+    initializeSimulation();
+  });
+
+  // Event listener for real-time Transmission Range updates
+  transmissionRangeInput.addEventListener('input', () => {
+    const newRange = parseInt(transmissionRangeInput.value, 10);
+    if (!isNaN(newRange) && newRange >= 10 && newRange <= 1000) {
+      transmissionRange = newRange;
+    }
+  });
+
+  // Handle window resize
+  window.addEventListener('resize', () => {
+    resizeCanvas();
+    // Optionally, reinitialize simulation on resize to adjust node positions
+    // initializeSimulation();
+  });
+</script>
+
+</body>
+</html>
